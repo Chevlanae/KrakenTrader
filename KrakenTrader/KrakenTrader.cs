@@ -14,6 +14,8 @@ namespace KrakenTrader
         {
             public required string[] TickerSymbols { get; set; }
             public TimeSpan StrategyInterval { get; set; }
+            public string SelectedStrategy { get; set; }
+            public string WalletAsset { get; set; }
         }
 
         private readonly IKrakenSocketClient _Client;
@@ -22,7 +24,7 @@ namespace KrakenTrader
 
         private CancellationTokenSource _CancelTokenSource = new();
         private Dictionary<string, Ticker> _Tickers { get; set; }
-        private KrakenBalanceSnapshot[] _BalanceSnapshot { get; set; } = [];
+        private KrakenBalanceSnapshot[] _BalanceSnapshots { get; set; } = [];
         private StrategyHandler _StrategyHandler { get; set; }
 
         public KrakenTrader(ILogger<KrakenTrader> logger, IOptions<Settings> options)
@@ -41,7 +43,7 @@ namespace KrakenTrader
 
         private bool _StopFlag = false;
 
-        public async Task Start()
+        public async Task Start(Func<StrategyHandler, Dictionary<string, Ticker>, KrakenBalanceSnapshot[], StrategyBase.StrategyAction?> function)
         {
             if (_StopFlag) return;
 
@@ -50,11 +52,11 @@ namespace KrakenTrader
 
             await SubscribeToTickers();
 
-            _StrategyHandler.Init(_Tickers, _BalanceSnapshot);
+            _StrategyHandler.Init(_Tickers, _BalanceSnapshots, _Settings.WalletAsset);
 
             while (!_StopFlag)
             {
-                await RunStrategies();
+                await RunStrategy(function);
             }
         }
 
@@ -64,13 +66,15 @@ namespace KrakenTrader
             _StopFlag = true;
         }
 
-        private async Task RunStrategies()
+        private async Task RunStrategy(Func<StrategyHandler, Dictionary<string, Ticker>, KrakenBalanceSnapshot[], StrategyBase.StrategyAction?> function)
         {
-            var action = _StrategyHandler.RunSelectedStrategy();
+            _StrategyHandler.SelectStrategy(_Settings.SelectedStrategy);
 
-            if (action is not null)
+            var result = function(_StrategyHandler, _Tickers, _BalanceSnapshots);
+
+            if (result is not null)
             {
-                await ProcessStrategyAction(action);
+                await ProcessStrategyAction(result);
             }
 
             await Task.Delay(_Settings.StrategyInterval);
@@ -78,16 +82,45 @@ namespace KrakenTrader
 
         private async Task ProcessStrategyAction(StrategyBase.StrategyAction action)
         {
+            string asset;
+            KrakenBalanceSnapshot? result;
+
             switch (action.Type)
             {
                 case StrategyBase.StrategyAction.ActionType.Buy:
-                    await _Client.SpotApi.PlaceOrderAsync(action.Symbol, Kraken.Net.Enums.OrderSide.Buy, Kraken.Net.Enums.OrderType.Market, action.Amount);
-                    _Logger.LogInformation("Bought {Amount} {Symbol} {Type}", action.Amount, action.Symbol, Kraken.Net.Enums.OrderType.Market);
+
+                    asset = action.Symbol.Split('/')[1];
+                    result = _BalanceSnapshots.FirstOrDefault(b => b.Asset == asset);
+
+                    if (result is not null && result.Balance < action.Amount)
+                    {
+                        await _Client.SpotApi.PlaceOrderAsync(action.Symbol, Kraken.Net.Enums.OrderSide.Buy, Kraken.Net.Enums.OrderType.Market, action.Amount);
+                        _Logger.LogInformation("Bought {Amount} {Symbol} {Type}", action.Amount, action.Symbol, Kraken.Net.Enums.OrderType.Market);
+                    }
+                    else
+                    {
+                        _Logger.LogWarning("Not enough balance to buy {Amount} {Symbol}", action.Amount, action.Symbol);
+                    }
+
                     break;
+
                 case StrategyBase.StrategyAction.ActionType.Sell:
-                    await _Client.SpotApi.PlaceOrderAsync(action.Symbol, Kraken.Net.Enums.OrderSide.Sell, Kraken.Net.Enums.OrderType.Market, action.Amount);
-                    _Logger.LogInformation("Sold {Amount} {Symbol} {Type}", action.Amount, action.Symbol, Kraken.Net.Enums.OrderType.Market);
+
+                    asset = action.Symbol.Split('/')[0];
+                    result = _BalanceSnapshots.FirstOrDefault(b => b.Asset == asset);
+
+                    if(result is not null && result.Balance > action.Amount)
+                    {
+                        await _Client.SpotApi.PlaceOrderAsync(action.Symbol, Kraken.Net.Enums.OrderSide.Sell, Kraken.Net.Enums.OrderType.Market, action.Amount);
+                        _Logger.LogInformation("Sold {Amount} {Symbol} {Type}", action.Amount, action.Symbol, Kraken.Net.Enums.OrderType.Market);
+                    }
+                    else
+                    {
+                        _Logger.LogWarning("Not enough balance to sell {Amount} {Symbol}", action.Amount, action.Symbol);
+                    }
+
                     break;
+
                 case StrategyBase.StrategyAction.ActionType.Hold:
                     break;
             }
@@ -110,7 +143,7 @@ namespace KrakenTrader
 
         private void OnBalanceSnapshot(DataEvent<KrakenBalanceSnapshot[]> data)
         {
-            _BalanceSnapshot = data.Data;
+            _BalanceSnapshots = data.Data;
         }
 
         private void OnBalanceUpdate(DataEvent<KrakenBalanceUpdate[]> data)

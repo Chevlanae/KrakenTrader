@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace KrakenTrader.Strategies
 {
-    public abstract class StrategyBase
+    public class StrategyBase
     {
         public class StrategyAction
         {
@@ -26,6 +26,7 @@ namespace KrakenTrader.Strategies
 
         protected StrategyBase() { }
 
-        public abstract StrategyAction DetermineAction(Dictionary<string, Ticker> tickers, KrakenBalanceSnapshot balanceSnapshots);
+        public virtual StrategyAction? DetermineAction(Dictionary<string, Ticker> tickers, KrakenBalanceSnapshot? balanceSnapshots) { throw new NotImplementedException(); }
+        public virtual StrategyAction? DetermineAction(Ticker ticker, KrakenBalanceSnapshot? balanceSnapshots) { throw new NotImplementedException(); }
     }
 }

@@ -13,56 +13,49 @@ namespace KrakenTrader.Strategies
 {
     internal class StrategyHandler
     {
-        public class Settings
-        {
-            public required string SelectedStrategy { get; set; }
-        }
-
         private readonly ILogger _Logger;
-        private readonly Settings _Settings;
 
         private Dictionary<string, Ticker> _Tickers { get; set; } = [];
         private StrategyBase? _SelectedStrategy { get; set; }
+        private string? _WalletAsset { get; set; }
         private KrakenBalanceSnapshot[] _BalanceSnapshot { get; set; } = [];
         private readonly Assembly _ExecutingAssembly = Assembly.GetExecutingAssembly();
 
         private List<Type> _AvailableStrategies = [];
 
-        public StrategyHandler(ILogger<StrategyHandler> logger, IOptions<Settings> options)
+        public StrategyHandler(ILogger<StrategyHandler> logger)
         {
             _Logger = logger;
-            _Settings = options.Value;
 
-            foreach(var type in _ExecutingAssembly.GetTypes())
+            foreach (var type in _ExecutingAssembly.GetTypes())
             {
                 if (type.IsClass && type.IsPublic && type.Namespace == "KrakenTrader.Strategies")
                 {
                     _AvailableStrategies.Add(type);
                 }
             }
-
-            SelectStrategy(_Settings.SelectedStrategy);
         }
 
-        public void Init(Dictionary<string, Ticker> tickers, KrakenBalanceSnapshot[] balanceSnapshots)
+        public void Init(Dictionary<string, Ticker> tickers, KrakenBalanceSnapshot[] balanceSnapshots, string walletAsset)
         {
             _Tickers = tickers;
             _BalanceSnapshot = balanceSnapshots;
+            _WalletAsset = walletAsset;
         }
 
         public void SelectStrategy(string selectedStrategy)
         {
             try
             {
-                foreach(Type strategy in _AvailableStrategies)
+                foreach (Type strategy in _AvailableStrategies)
                 {
-                    if(strategy.Name == selectedStrategy)
+                    if (strategy.Name == selectedStrategy)
                     {
                         object? instance = Activator.CreateInstance(strategy);
 
-                        if(instance is not null)
+                        if (instance is not null)
                         {
-                            _SelectedStrategy = (StrategyBase) instance;
+                            _SelectedStrategy = (StrategyBase)instance;
                             _Logger.LogInformation("Changed selected strategy to {Strategy}", selectedStrategy);
                         }
 
@@ -76,9 +69,14 @@ namespace KrakenTrader.Strategies
             }
         }
 
-        public StrategyBase.StrategyAction? RunSelectedStrategy()
+        public StrategyBase.StrategyAction? RunSelectedStrategy(Ticker selectedTicker)
         {
-            return _SelectedStrategy?.DetermineAction(_Tickers, balanceSnapshots: _BalanceSnapshot.First(s => s.Asset == "USD"));
+            return _SelectedStrategy?.DetermineAction(selectedTicker, balanceSnapshots: _BalanceSnapshot.FirstOrDefault(s => s.Asset == _WalletAsset));
+        }
+
+        public StrategyBase.StrategyAction? RunSelectedStrategy(Dictionary<string, Ticker> tickers)
+        {
+            return _SelectedStrategy?.DetermineAction(tickers, balanceSnapshots: _BalanceSnapshot.FirstOrDefault(s => s.Asset == _WalletAsset));
         }
     }
 }

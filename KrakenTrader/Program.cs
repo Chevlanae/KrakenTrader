@@ -29,7 +29,6 @@ namespace KrakenTrader
                 });
 
                 services.Configure<KrakenTrader.Settings>(context.Configuration.GetSection("KrakenTrader.Settings"));
-                services.Configure<StrategyHandler.Settings>(context.Configuration.GetSection("StrategyHandler.Settings"));
 
                 services.AddKraken(context.Configuration.GetSection("Kraken"));
                 services.AddSingleton<KrakenTrader>();
@@ -51,7 +50,10 @@ namespace KrakenTrader
 
             Console.CancelKeyPress += Console_CancelKeyPress;
 
-            await _Trader.Start();
+            await _Trader.Start((handler, tickers, balances) =>
+            {
+                return handler.RunSelectedStrategy(tickers.First().Value);
+            });
         }
 
         private static void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
