@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "KrakenTrader": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
